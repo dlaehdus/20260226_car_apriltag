@@ -4,6 +4,14 @@ https://universe.roboflow.com/license-plate-mhig5/license-plate-7egee/browse?que
 train 모습
 <img width="880" height="147" alt="image" src="https://github.com/user-attachments/assets/67a55d2a-f7aa-4f8e-8fce-70aae8588746" />
 <img width="923" height="317" alt="image" src="https://github.com/user-attachments/assets/7adc2ed6-aea9-4333-9b63-38e2a475cb41" />
+<img width="833" height="547" alt="image" src="https://github.com/user-attachments/assets/ab5abf2f-1c80-4558-ad26-5782167ae83c" />
+<img width="833" height="547" alt="image" src="https://github.com/user-attachments/assets/9e79cc47-fa74-4075-b901-2bbe8ff89a2a" />
+<img width="833" height="547" alt="image" src="https://github.com/user-attachments/assets/f3c1d895-1d72-4b00-bc79-61d12c74bc26" />
+<img width="833" height="547" alt="image" src="https://github.com/user-attachments/assets/31e82174-a4ad-407e-a8fe-119642b1553e" />
+<img width="684" height="548" alt="image" src="https://github.com/user-attachments/assets/af4ca87e-681c-4806-9f42-19457861f52b" />
+<img width="684" height="548" alt="image" src="https://github.com/user-attachments/assets/78449d32-18f5-441a-a9a9-ed17ff1ee2b6" />
+<img width="564" height="555" alt="image" src="https://github.com/user-attachments/assets/0c109373-d1bd-497e-8e02-e3d412001ff9" />
+<img width="1039" height="504" alt="image" src="https://github.com/user-attachments/assets/99ed9016-2136-4649-bbcc-6763db6aa6a1" />
 
 
 
