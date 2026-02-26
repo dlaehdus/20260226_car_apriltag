@@ -1,6 +1,12 @@
 https://universe.roboflow.com/license-plate-mhig5/license-plate-7egee/browse?queryText=&pageSize=50&startingIndex=100&browseQuery=true
 위 주소의 데이터 사용
 
+train 모습
+<img width="880" height="147" alt="image" src="https://github.com/user-attachments/assets/67a55d2a-f7aa-4f8e-8fce-70aae8588746" />
+<img width="923" height="317" alt="image" src="https://github.com/user-attachments/assets/7adc2ed6-aea9-4333-9b63-38e2a475cb41" />
+
+
+
 <img width="792" height="879" alt="스크린샷 2026-02-26 14-05-02" src="https://github.com/user-attachments/assets/5709dd58-480c-4e65-b026-a6d580edcdf3" />
 """
 이 코드는 리얼센스 카메라의 렌즈 파라미터와 에이프릴태그의 실제 크기를 기준으로 영상 속 왜곡을 역산하여, 
