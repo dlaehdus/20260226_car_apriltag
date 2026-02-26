@@ -1,105 +1,153 @@
-# 리얼센스 D415 카메라로부터 받은 영상에서 에어프릴태그를 찾아내고 수학적인 계산을 통해 3차원 거리와 회전각을 시각화하는 코드
+"""
+이 코드는 리얼센스 카메라의 렌즈 파라미터와 에이프릴태그의 실제 크기를 기준으로 영상 속 왜곡을 역산하여, 
+태그의 3차원 위치(X, Y, Z)와 회전 각도(Roll, Pitch, Yaw)를 실시간으로 계산하고 
+이를 화면에 입체 상자와 수치로 시각화하는 프로그램입니다.
+결과적으로 카메라가 태그를 바라보는 정밀한 거리와 기울기를 파악해 가상의 3D 그래픽을 실제 태그 위치에 정확히 덧입혀 보여주는 증강현실(AR) 기술의 기초를 구현하고 있습니다.
+"""
 
-import pyrealsense2 as rs           # 리얼센스 카메라 제어 SDK
-import numpy as np                  # 수치 계산 및 행렬 처리
-import cv2                          # 이미지 처리 및 화면 출력 (OpenCV)
-import math                         # 삼각함수 등 수학 계산
-from dt_apriltags import Detector   # 에이프릴태그 검출 엔진
+# ====================================================================================
+# 필요 라이브러리
+# ====================================================================================
+import pyrealsense2 as rs
+import numpy as np
+import cv2
+import math
+from dt_apriltags import Detector
 
-# ==========================================
-# 1. 실제 출력한 태그 크기로 수정
-# ==========================================
-TAG_SIZE = 0.03                      # 미터단위
 
-def get_cube_points(tag_size):      # 3D 큐브의 꼭짓점을 정의하는 함수 (태그를 바닥으로 하는 정육면체)
+# ====================================================================================
+# 초기 설정 및 3D모델 정의
+# ====================================================================================
+# 실제 종이에 인쇄된 에이프릴태그의 한변의 길이를 정의 단위는 m단위
+TAG_SIZE = 0.03
+# 테그 위에 그릴 가상 3D상자의 꼭지점 8개를 계산하는 함수
+def get_cube_points(tag_size):
+    # 태그 중심으로부터의 거리를 계산하기 위해 크기를 반으로 나눕니다.
     s = tag_size / 2
+    # 태그 바닥면 4점과 그 위로 솟은 윗면 4점의 3D 좌표를 반환합니다.
     return np.float32([
-        [-s, -s, 0], [s, -s, 0], [s, s, 0], [-s, s, 0],                                 # 바닥면 4개 점
-        [-s, -s, -tag_size], [s, -s, -tag_size], [s, s, -tag_size], [-s, s, -tag_size]  # 윗면 4개 점
+        [-s, -s, 0], [s, -s, 0], [s, s, 0], [-s, s, 0],
+        [-s, -s, -tag_size], [s, -s, -tag_size], [s, s, -tag_size], [-s, s, -tag_size]
     ])
 
-# 리얼센스 D415 카메라 초기화
-pipeline = rs.pipeline()                                                                # 카메라 데이터 흐름(통로) 생성
-config = rs.config()                                                                    # 카메라 설정 객체 생성
-config.enable_stream(rs.stream.color, 1280, 720, rs.format.bgr8, 30)                    # 컬러 영상(1280x720, 30fps) 활성화
-
+# ====================================================================================
+# 리얼센스 초기화
+# ====================================================================================
+# 카메라 데이터가 흐르는 통로(파이프라인)를 생성합니다.
+pipeline = rs.pipeline()
+# 카메라의 해상도, 프레임 수 등을 설정하는 객체입니다.
+config = rs.config()
+# 컬러 영상을 1280x720 해상도, BGR 색상, 30FPS로 사용하겠다고 설정합니다.
+config.enable_stream(rs.stream.color, 1280, 720, rs.format.bgr8, 30)
 try:
-    profile = pipeline.start(config)        # 설정한 내용으로 스트리밍 시작
+    # 위 설정을 적용하여 실제 카메라 영상 송출을 시작합니다.
+    profile = pipeline.start(config)
 except RuntimeError as e:
     print(f"에러 발생: {e}\n리얼센스 뷰어가 켜져있다면 반드시 끄고 실행하세요.")
     exit()
-
-# 카메라 내장 파라미터(Intrinsic) 자동 획득
+# 카메라 렌즈의 초점거리($f_x, f_y$)와 중심점($c_x, c_y$) 정보를 가져옵니다.
 intr = profile.get_stream(rs.stream.color).as_video_stream_profile().get_intrinsics()
+# 에이프릴태그 검출기가 계산에 사용할 수 있도록 파라미터를 튜플 형태로 정리합니다.
 camera_params = (intr.fx, intr.fy, intr.ppx, intr.ppy)
 
-# 3. 에이프릴태그 검출기 설정 (에러 방지를 위한 파라미터 튜닝)
+
+# ====================================================================================
+# 에이프릴태그 검출기 설정 (에러 방지를 위한 파라미터 튜닝)
+# ====================================================================================
+# 에이프릴태그 검출 객체를 생성합니다.
 at_detector = Detector(
-    families='tag36h11',            # 인식할 태그 종류 (가장 일반적인 형태)
-    nthreads=4,                     # 처리에 사용할 CPU 코어 수
-    quad_decimate=2.0,              # 이미지를 1/2로 줄여서 분석 (속도 향상 및 노이즈 제거)
-    quad_sigma=0.8,                 # 가우시안 블러로 노이즈 제거
-    refine_edges=1,                 # 태그 테두리를 더 정밀하게 찾음
-    decode_sharpening=0.25          # 인식 성능 향상을 위한 선명도 조절
+    # 인식할 태그의 종류(가족)를 지정합니다
+    families='tag36h11',
+    # 연산 속도를 높이기 위해 CPU 코어를 4개 사용합니다.
+    nthreads=4,
+    # 이미지를 1/2로 다운샘플링하여 처리 속도를 높입니다.
+    quad_decimate=2.0,
+    # 이미지에 약간의 가우시안 블러를 적용해 노이즈를 줄입니다.
+    quad_sigma=0.8,
+    refine_edges=1,
+    decode_sharpening=0.25
 )
+print("'q'를 누르면 종료됩니다.")
 
-print("프로그램 시작... 'q'를 누르면 종료됩니다.")
 
+
+# ====================================================================================
+# 영상 수신 및 태그 검출
+# ====================================================================================
 try:
     while True:
-        # 프레임 받기
-        frames = pipeline.wait_for_frames()             # 카메라로부터 새로운 프레임이 올 때까지 대기
-        color_frame = frames.get_color_frame()          # 컬러 이미지 데이터 추출
+        # 카메라로부터 한 세트의 프레임이 올 때까지 기다립니다.
+        frames = pipeline.wait_for_frames()
+        # 여러 데이터 중 컬러 이미지 데이터만 뽑아냅니다.
+        color_frame = frames.get_color_frame()
+        # 데이터가 비어있다면 오류 방지를 위해 이번 루프는 건너뜁니다.
         if not color_frame:
             continue
+        # 리얼센스 전용 데이터를 파이썬에서 처리하기 쉬운 넘파이 배열(이미지)로 바꿉니다.
+        img = np.asanyarray(color_frame.get_data())
+        # 에이프릴태그 알고리즘은 명암 차이를 이용하므로 연산 속도 향상을 위해 흑백으로 변환합니다.
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
-        # 이미지 변환
-        img = np.asanyarray(color_frame.get_data())     # 데이터를 넘파이 배열(이미지)로 변환
-        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)    # 인식 속도를 높이기 위해 흑백으로 변환
 
-        # 실제 태그를 찾는 핵심 코드. estimate_tag_pose=True가 좌표와 각도를 계산하라는 옵션입니다.
+        # ====================================================================================
+        # 영상 수신 및 태그 검출
+        # ====================================================================================
+        # 핵심 줄. 이미지 속 태그를 찾아 ID, 2D 좌표, 그리고 3D 자세(pose)를 한꺼번에 계산합니다
         tags = at_detector.detect(gray, estimate_tag_pose=True, camera_params=camera_params, tag_size=TAG_SIZE)
-
+        # 화면 안에서 검출된 여러 개의 태그를 하나씩 순서대로 처리합니다.
         for tag in tags:
-            R = tag.pose_R  # 3x3 회전 행렬 (태그가 어느 방향으로 기울었는지)
-            t = tag.pose_t  # 3x1 이동 벡터 (카메라로부터 얼마나 떨어졌는지 x, y, z)
-
-            # OpenCV 시각화 함수들에 필요한 카메라 매트릭스(K) 구성
+            # 태그의 회전 상태를 나타내는 3x3 행렬입니다. (기울어진 정도)
+            R = tag.pose_R
+            # 태그의 위치 정보를 담은 3x1 벡터입니다. (카메라로부터 떨어진 거리 X, Y, Z)
+            t = tag.pose_t
+            # 카메라 렌즈 특성(초점거리, 중심점)을 행렬 형태로 구성합니다.
             K = np.array([[intr.fx, 0, intr.ppx], [0, intr.fy, intr.ppy], [0, 0, 1]])
-            dist_coeffs = np.zeros(5) # D415의 컬러 영상은 이미 보정되어 나오므로 0으로 둡니다.
+            # 렌즈 왜곡 값을 0으로 설정합니다. (D415는 내부에서 왜곡 보정이 되어 나옵니다.)
+            dist_coeffs = np.zeros(5)
 
-            # 태그 중심에 빨강(X), 초록(Y), 파랑(Z) 화살표를 그립니다.
+
+            # ====================================================================================
+            # 영상 수신 및 태그 검출
+            # ====================================================================================
+            # 태그의 중심에 입체 좌표축(빨강-X, 초록-Y, 파랑-Z) 화살표를 그립니다.
             cv2.drawFrameAxes(img, K, dist_coeffs, R, t, TAG_SIZE * 0.8)
-
-            # 3D 초록색 상자 그리기
-            rvec, _ = cv2.Rodrigues(R)                          # 3x3 행렬인 R을 OpenCV가 쓰는 회전 벡터 형식으로 변환
-            cube_points = get_cube_points(TAG_SIZE)             # 아까 정의한 8개 3D 점들 생성
-            img_pts, _ = cv2.projectPoints(cube_points, rvec, t, K, dist_coeffs)    # 3D 점들을 2D 화면 좌표로 투영
+            # 3x3 회전 행렬을 OpenCV의 그리기 함수가 사용하는 '회전 벡터' 형식으로 변환합니다.
+            rvec, _ = cv2.Rodrigues(R)
+            # 상자를 그리기 위한 8개의 입체 꼭짓점 좌표를 생성합니다.
+            cube_points = get_cube_points(TAG_SIZE)
+            # 3D 공간상의 상자 좌표를 카메라 렌즈 시점에 맞춰 2D 이미지 좌표로 투영합니다.
+            img_pts, _ = cv2.projectPoints(cube_points, rvec, t, K, dist_coeffs)
+            # 화면에 그리기 위해 소수점 좌표를 정수형(픽셀 단위)으로 바꿉니다.
             img_pts = np.int32(img_pts).reshape(-1, 2)
-
-            # # 선 긋기: 바닥면, 기둥, 윗면을 순서대로 연결하여 상자 완성 (초록색)
+            # 상자의 바닥면(태그 테두리)을 초록색으로 그립니다.
             cv2.drawContours(img, [img_pts[:4]], -1, (0, 255, 0), 2)
-            # 수직 기둥 4개
+            # 바닥면 네 점과 윗면 네 점을 이어 기둥 4개를 세웁니다.
             for i in range(4):
                 cv2.line(img, tuple(img_pts[i]), tuple(img_pts[i+4]), (0, 255, 0), 2)
-            # 윗면 테두리
+            # 상자의 윗면 뚜껑을 그려 입체를 완성합니다.
             cv2.drawContours(img, [img_pts[4:]], -1, (0, 255, 0), 2)
 
-            # --- 좌표 및 롤, 피치, 요 계산 ---
-            # 복잡한 회전 행렬 R을 우리가 이해하기 쉬운 도(degree) 단위 각도로 변환합니다.
-            x, y, z = t.flatten()
-            pitch = math.degrees(math.atan2(-R[2, 1], R[2, 2]))
-            yaw = math.degrees(math.atan2(R[2, 0], math.sqrt(R[2, 1]**2 + R[2, 2]**2)))
-            roll = math.degrees(math.atan2(-R[1, 0], R[0, 0]))
 
-            # 화면 상단에 ID, 거리, 각도를 텍스트로 표시
+            # ====================================================================================
+            # 데이터 텍스트 출력 밒 사용자 인터페이스
+            # ====================================================================================
+            # 이동 벡터에서 가로(X), 세로(Y), 거리(Z)를 각각 변수에 담습니다.
+            x, y, z = t.flatten()
+            # 수직 기울기(Pitch)를 계산합니다.
+            pitch = math.degrees(math.atan2(-R[2, 1], R[2, 2]))
+            # 수평 회전(Yaw)을 계산합니다.
+            yaw = math.degrees(math.atan2(R[2, 0], math.sqrt(R[2, 1]**2 + R[2, 2]**2)))
+            # 좌우 기울기(Roll)를 계산합니다.
+            roll = math.degrees(math.atan2(-R[1, 0], R[0, 0]))
+            # ID와 거리, RPY 각도 정보를 담은 문자열을 만듭니다.
             info = f"ID:{tag.tag_id} Z:{z:.2f}m R:{roll:.0f} P:{pitch:.0f} Y:{yaw:.0f}"
+            # 태그 머리 위에 계산된 수치 정보를 노란색 글씨로 출력합니다.
             cv2.putText(img, info, (int(tag.center[0]), int(tag.center[1])-20), 
                         cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 2)
-            
+            # 터미널(콘솔) 창에도 정밀한 위치값을 실시간으로 출력합니다.
             print(f"ID:{tag.tag_id} | Pos(x,y,z): {x:.2f},{y:.2f},{z:.2f} | RPY: {roll:.1f},{pitch:.1f},{yaw:.1f}")
 
-        # 결과 화면 보기
+        # 모든 그래픽이 입혀진 최종 이미지를 새 창에 보여줍니다.
         cv2.imshow('D415 AprilTag 3D', img)
         if cv2.waitKey(1) & 0xFF == ord('q'):
             break
