@@ -1,3 +1,5 @@
+https://universe.roboflow.com/license-plate-mhig5/license-plate-7egee/browse?queryText=&pageSize=50&startingIndex=100&browseQuery=true
+위 주소의 데이터 사용
 
 <img width="792" height="879" alt="스크린샷 2026-02-26 14-05-02" src="https://github.com/user-attachments/assets/5709dd58-480c-4e65-b026-a6d580edcdf3" />
 """
